@@ -1,0 +1,29 @@
+# 12_dq_rules.yml
+# object_name: é o mesmo que o scanner salva (tabela/arquivo)
+# Para Postgres: object_name = nome da tabela (ex: clientes)
+# Para DuckDB: object_name = o que você passou em --table (ex: stg.src_material_data) OU o nome completo que você usar
+# Para arquivo: object_name = nome do arquivo (ex: vendas.csv)
+
+datasets:
+  clientes:
+    columns:
+      id:
+        not_null: true
+        unique: true
+      email:
+        not_null: false
+        regex: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+      idade:
+        range:
+          min: 0
+          max: 120
+
+  stg.src_material_data:
+    columns:
+      material_id:
+        not_null: true
+        unique: true
+      measured_at:
+        not_null: true
+      plant:
+        allowed_values: ["BR01", "BR07", "BR12"]

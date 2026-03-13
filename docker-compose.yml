@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: dq_postgres
+    environment:
+      POSTGRES_DB: dq
+      POSTGRES_USER: dq_user
+      POSTGRES_PASSWORD: dq_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - dq_pgdata:/var/lib/postgresql/data
+
+  app:
+    image: python:3.11-slim
+    container_name: dq_app
+    working_dir: /app
+    volumes:
+      - ./:/app
+    command: bash -lc "pip install -r requirements.txt && bash"
+    depends_on:
+      - postgres
+    tty: true
+
+volumes:
+  dq_pgdata:

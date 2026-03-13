@@ -1,0 +1,10 @@
+files:
+  inbox: C:/Users/Daniel/Downloads/Data_Quality/data
+  include_ext:
+  - csv
+  - xlsx
+  - xls
+  - parquet
+  csv_sep: ','
+  csv_encoding: utf-8
+databases: []

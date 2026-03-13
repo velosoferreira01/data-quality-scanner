@@ -1,0 +1,34 @@
+files:
+  inbox: ./data/inbox
+  include_ext: [csv, parquet, xlsx, xls]
+  csv_sep: ","
+  csv_encoding: "utf-8"
+
+databases:
+  - name: postgres_local
+    type: postgres
+    host: localhost #host: dq_postgres
+    port: 5432
+    db: dq
+    user: dq_user
+    password: dq_pass
+    include_schemas: [public]
+    include_tables: ["public.clientes_teste"]
+    limit: 50000
+
+  #- name: mysql_local
+  #  type: mysql
+  #  host: mysql_host
+  #  port: 3306
+  #  db: minha_base
+  #  user: meu_user
+  #  password: minha_senha
+  #  include_schemas: [minha_base]
+  #  include_tables: ["minha_base.tabela1"]
+  #  limit: 50000
+
+  #- name: duckdb_local
+  #  type: duckdb
+  #  dbfile: ./outro_banco.duckdb
+  #  include_tables: ["main.tabela_teste"]
+  #  limit: 50000

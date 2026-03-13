@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+.env.*
+
+# Databases
+*.duckdb
+*.db
+
+# Logs
+logs/
+*.log
+
+# Output
+output/
+
+# Backup
+bkp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VSCode
+.vscode/
+
+# Python environments
+.venv/
+venv/
+
+# Cache
+.cache/

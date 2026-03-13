@@ -1,0 +1,415 @@
+# -*- coding: utf-8 -*-
+"""
+15_run_sources_pipeline.py
+Lê sources.yml e executa o pipeline universal completo para:
+- arquivos: csv, parquet, xlsx, xls
+- bancos: postgres, mysql, duckdb
+
+Saída:
+- stg.dq_table_metrics_u
+- stg.dq_column_metrics_u
+- stg.dq_table_scores_u
+- stg.dq_column_scores_u
+- stg.dq_table_scores_u_rules
+"""
+
+import argparse
+import datetime as dt
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+import duckdb
+import pandas as pd
+import yaml
+
+
+def load_yaml(path: str) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def is_numeric(s: pd.Series) -> bool:
+    return pd.api.types.is_numeric_dtype(s)
+
+
+def is_datetime(s: pd.Series) -> bool:
+    return pd.api.types.is_datetime64_any_dtype(s)
+
+
+def column_metrics(df: pd.DataFrame, col: str):
+    s = df[col]
+    total = int(len(s))
+    nulls = int(s.isna().sum())
+    nn = s.dropna()
+
+    distinct_cnt = int(nn.nunique(dropna=True)) if len(nn) else 0
+    null_rate = (nulls / total) if total else 0.0
+    distinct_ratio = (distinct_cnt / len(nn)) if len(nn) else 0.0
+
+    minv = None
+    maxv = None
+    avg_len = None
+    max_len = None
+
+    try:
+        if len(nn):
+            if is_numeric(nn):
+                minv = str(nn.min())
+                maxv = str(nn.max())
+            elif is_datetime(nn):
+                minv = str(nn.min())
+                maxv = str(nn.max())
+            else:
+                ss = nn.astype(str)
+                lens = ss.str.len()
+                avg_len = float(lens.mean()) if len(lens) else None
+                max_len = int(lens.max()) if len(lens) else None
+    except Exception:
+        pass
+
+    return {
+        "column_name": col,
+        "dtype": str(s.dtype),
+        "total": total,
+        "nulls": nulls,
+        "null_rate": float(null_rate),
+        "distinct_cnt": distinct_cnt,
+        "distinct_ratio": float(distinct_ratio),
+        "min_value": minv,
+        "max_value": maxv,
+        "avg_len": avg_len,
+        "max_len": max_len,
+    }
+
+
+def table_metrics(df: pd.DataFrame):
+    row_count = int(df.shape[0])
+    col_count = int(df.shape[1])
+    null_cells = int(df.isna().sum().sum()) if row_count and col_count else 0
+    total_cells = int(row_count * col_count)
+    null_rate = (null_cells / total_cells) if total_cells else 0.0
+    return row_count, col_count, null_cells, total_cells, float(null_rate)
+
+
+def ensure_duckdb_tables(con: duckdb.DuckDBPyConnection, stg_schema: str):
+    con.execute(f"CREATE SCHEMA IF NOT EXISTS {stg_schema};")
+
+    con.execute(f"""
+        CREATE TABLE IF NOT EXISTS {stg_schema}.dq_table_metrics_u (
+            run_id        VARCHAR,
+            scanned_at    TIMESTAMP,
+            source_type   VARCHAR,
+            source_ref    VARCHAR,
+            object_name   VARCHAR,
+            sample_rows   BIGINT,
+            columns       BIGINT,
+            null_cells    BIGINT,
+            total_cells   BIGINT,
+            null_rate     DOUBLE
+        );
+    """)
+
+    con.execute(f"""
+        CREATE TABLE IF NOT EXISTS {stg_schema}.dq_column_metrics_u (
+            run_id          VARCHAR,
+            scanned_at      TIMESTAMP,
+            source_type     VARCHAR,
+            source_ref      VARCHAR,
+            object_name     VARCHAR,
+            column_name     VARCHAR,
+            dtype           VARCHAR,
+            total           BIGINT,
+            nulls           BIGINT,
+            null_rate       DOUBLE,
+            distinct_cnt    BIGINT,
+            distinct_ratio  DOUBLE,
+            min_value       VARCHAR,
+            max_value       VARCHAR,
+            avg_len         DOUBLE,
+            max_len         BIGINT
+        );
+    """)
+
+
+def insert_df(con: duckdb.DuckDBPyConnection, df: pd.DataFrame, target: str):
+    if df.empty:
+        return
+    con.register("tmp_df", df)
+    con.execute(f"INSERT INTO {target} SELECT * FROM tmp_df")
+    con.unregister("tmp_df")
+
+
+def safe_name(x: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_]+", "_", x).strip("_")
+
+
+def load_excel_all_sheets(path: Path, limit: int):
+    xls = pd.ExcelFile(path)
+    out = []
+    for sheet in xls.sheet_names:
+        df = pd.read_excel(path, sheet_name=sheet)
+        if limit and limit > 0:
+            df = df.head(limit)
+        out.append((f"{path.name}::{sheet}", df, str(path.resolve())))
+    return out
+
+
+def load_csv(path: Path, limit: int, sep=",", encoding="utf-8"):
+    df = pd.read_csv(path, nrows=limit if limit and limit > 0 else None, sep=sep, encoding=encoding, low_memory=False)
+    return [(path.name, df, str(path.resolve()))]
+
+
+def load_parquet(path: Path, limit: int):
+    df = pd.read_parquet(path)
+    if limit and limit > 0:
+        df = df.head(limit)
+    return [(path.name, df, str(path.resolve()))]
+
+
+def scan_files_block(files_cfg: dict, limit: int):
+    inbox = Path(files_cfg.get("inbox", "./data/inbox"))
+    include_ext = [x.lower() for x in (files_cfg.get("include_ext") or ["csv", "parquet", "xlsx", "xls"])]
+    csv_sep = files_cfg.get("csv_sep", ",")
+    csv_encoding = files_cfg.get("csv_encoding", "utf-8")
+
+    datasets = []
+    if not inbox.exists():
+        print(f"[FILES] inbox não existe: {inbox}")
+        return datasets
+
+    for p in sorted(inbox.iterdir()):
+        if not p.is_file():
+            continue
+        ext = p.suffix.lower().replace(".", "")
+        if ext not in include_ext:
+            continue
+
+        if ext == "csv":
+            datasets.extend(load_csv(p, limit=limit, sep=csv_sep, encoding=csv_encoding))
+        elif ext == "parquet":
+            datasets.extend(load_parquet(p, limit=limit))
+        elif ext in ("xlsx", "xls"):
+            datasets.extend(load_excel_all_sheets(p, limit=limit))
+
+    return datasets
+
+
+def load_postgres_tables(db_cfg: dict):
+    import psycopg2
+
+    host = db_cfg["host"]
+    port = int(db_cfg.get("port", 5432))
+    db = db_cfg["db"]
+    user = db_cfg["user"]
+    password = db_cfg["password"]
+    include_schemas = db_cfg.get("include_schemas") or ["public"]
+    include_tables = set(db_cfg.get("include_tables") or [])
+    limit = int(db_cfg.get("limit", 50000))
+
+    conn = psycopg2.connect(host=host, port=port, dbname=db, user=user, password=password)
+    cur = conn.cursor()
+
+    results = []
+    for schema in include_schemas:
+        cur.execute("""
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+        """, (schema,))
+        tables = [r[0] for r in cur.fetchall()]
+
+        if include_tables:
+            tables = [t for t in tables if f"{schema}.{t}" in include_tables]
+
+        for t in tables:
+            sql = f'SELECT * FROM "{schema}"."{t}" LIMIT %s'
+            df = pd.read_sql_query(sql, conn, params=(limit,))
+            results.append((f"{schema}.{t}", df, f"{host}:{port}/{db}/{schema}"))
+
+    conn.close()
+    return results
+
+
+def load_mysql_tables(db_cfg: dict):
+    import pymysql
+
+    host = db_cfg["host"]
+    port = int(db_cfg.get("port", 3306))
+    db = db_cfg["db"]
+    user = db_cfg["user"]
+    password = db_cfg["password"]
+    include_schemas = db_cfg.get("include_schemas") or [db]
+    include_tables = set(db_cfg.get("include_tables") or [])
+    limit = int(db_cfg.get("limit", 50000))
+
+    conn = pymysql.connect(host=host, port=port, user=user, password=password, database=db)
+    results = []
+
+    for schema in include_schemas:
+        sql_tables = """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = %s AND table_type = 'BASE TABLE'
+            ORDER BY table_name
+        """
+        tbl_df = pd.read_sql(sql_tables, conn, params=[schema])
+        tables = tbl_df["table_name"].tolist()
+
+        if include_tables:
+            tables = [t for t in tables if f"{schema}.{t}" in include_tables]
+
+        for t in tables:
+            sql = f"SELECT * FROM `{schema}`.`{t}` LIMIT {limit}"
+            df = pd.read_sql(sql, conn)
+            results.append((f"{schema}.{t}", df, f"{host}:{port}/{db}/{schema}"))
+
+    conn.close()
+    return results
+
+
+def load_duckdb_tables(db_cfg: dict):
+    dbfile = db_cfg["dbfile"]
+    include_tables = db_cfg.get("include_tables") or []
+    limit = int(db_cfg.get("limit", 50000))
+
+    con = duckdb.connect(dbfile)
+    results = []
+
+    for table in include_tables:
+        df = con.execute(f"SELECT * FROM {table} LIMIT {limit}").df()
+        results.append((table, df, dbfile))
+
+    con.close()
+    return results
+
+
+def run_post_steps(base_dir: str, duckdb_file: str, stg: str, rules_file: str, run_id: str, report: bool):
+    py = sys.executable
+
+    cmds = [
+        [py, os.path.join(base_dir, "10_compute_scores_universal.py"), "--duckdb", duckdb_file, "--stg", stg, "--run_id", run_id],
+        [py, os.path.join(base_dir, "12_compute_column_scores_universal.py"), "--duckdb", duckdb_file, "--stg", stg, "--rules", rules_file, "--run_id", run_id],
+        [py, os.path.join(base_dir, "13_compute_table_scores_with_rules_universal.py"), "--duckdb", duckdb_file, "--stg", stg, "--run_id", run_id],
+    ]
+
+    if report:
+        cmds.append([py, os.path.join(base_dir, "11_show_report_like_image.py"), "--duckdb", duckdb_file, "--stg", stg, "--run_id", run_id])
+
+    for cmd in cmds:
+        print("[RUN]", " ".join(cmd))
+        r = subprocess.run(cmd)
+        if r.returncode != 0:
+            raise SystemExit(r.returncode)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--sources", required=True, help="Arquivo YAML de fontes")
+    ap.add_argument("--duckdb", required=True, help="Arquivo dq_lab.duckdb")
+    ap.add_argument("--stg", default="stg")
+    ap.add_argument("--rules", required=True, help="Arquivo YAML de regras")
+    ap.add_argument("--run_id", default=None)
+    ap.add_argument("--limit", type=int, default=50000, help="limite padrão para arquivos")
+    ap.add_argument("--report", action="store_true")
+    args = ap.parse_args()
+
+    cfg = load_yaml(args.sources)
+    run_id = args.run_id or dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    scanned_at = dt.datetime.now()
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    out = duckdb.connect(args.duckdb)
+    ensure_duckdb_tables(out, args.stg)
+
+    table_rows = []
+    col_rows = []
+
+    # -------- Files --------
+    files_cfg = cfg.get("files") or {}
+    file_datasets = scan_files_block(files_cfg, limit=args.limit)
+
+    for object_name, df, source_ref in file_datasets:
+        sample_rows, columns, null_cells, total_cells, null_rate = table_metrics(df)
+        table_rows.append({
+            "run_id": run_id,
+            "scanned_at": scanned_at,
+            "source_type": "file",
+            "source_ref": source_ref,
+            "object_name": object_name,
+            "sample_rows": sample_rows,
+            "columns": columns,
+            "null_cells": null_cells,
+            "total_cells": total_cells,
+            "null_rate": null_rate,
+        })
+
+        for col in df.columns:
+            cm = column_metrics(df, col)
+            col_rows.append({
+                "run_id": run_id,
+                "scanned_at": scanned_at,
+                "source_type": "file",
+                "source_ref": source_ref,
+                "object_name": object_name,
+                **cm,
+            })
+
+        print(f"[SCAN] file -> {object_name} rows={sample_rows} cols={columns}")
+
+    # -------- Databases --------
+    for db_cfg in (cfg.get("databases") or []):
+        db_type = (db_cfg.get("type") or "").lower()
+
+        if db_type == "postgres":
+            datasets = load_postgres_tables(db_cfg)
+        elif db_type == "mysql":
+            datasets = load_mysql_tables(db_cfg)
+        elif db_type == "duckdb":
+            datasets = load_duckdb_tables(db_cfg)
+        else:
+            print(f"[WARN] tipo de banco não suportado: {db_type}")
+            continue
+
+        for object_name, df, source_ref in datasets:
+            sample_rows, columns, null_cells, total_cells, null_rate = table_metrics(df)
+            table_rows.append({
+                "run_id": run_id,
+                "scanned_at": scanned_at,
+                "source_type": db_type,
+                "source_ref": source_ref,
+                "object_name": object_name,
+                "sample_rows": sample_rows,
+                "columns": columns,
+                "null_cells": null_cells,
+                "total_cells": total_cells,
+                "null_rate": null_rate,
+            })
+
+            for col in df.columns:
+                cm = column_metrics(df, col)
+                col_rows.append({
+                    "run_id": run_id,
+                    "scanned_at": scanned_at,
+                    "source_type": db_type,
+                    "source_ref": source_ref,
+                    "object_name": object_name,
+                    **cm,
+                })
+
+            print(f"[SCAN] {db_type} -> {object_name} rows={sample_rows} cols={columns}")
+
+    insert_df(out, pd.DataFrame(table_rows), f"{args.stg}.dq_table_metrics_u")
+    insert_df(out, pd.DataFrame(col_rows), f"{args.stg}.dq_column_metrics_u")
+    out.close()
+
+    print(f"[SCAN] run_id={run_id} datasets={len(table_rows)} col_metrics={len(col_rows)}")
+    run_post_steps(base_dir, args.duckdb, args.stg, args.rules, run_id, args.report)
+    print("[PIPELINE] COMPLETO.")
+
+
+if __name__ == "__main__":
+    main()

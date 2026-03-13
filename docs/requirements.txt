@@ -1,0 +1,9 @@
+duckdb
+pandas
+pyyaml
+psycopg2-binary
+pymysql
+sqlalchemy
+openpyxl
+xlrd
+pyarrow
