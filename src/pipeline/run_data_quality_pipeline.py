@@ -1,348 +1,231 @@
 # -*- coding: utf-8 -*-
 """
-run_data_quality_pipeline.py
+run_data_quality_pipeline.py (VERSÃO CORRIGIDA)
 
-Executa o pipeline universal completo para:
-- arquivos: csv, parquet, xlsx, xls
-- bancos: postgres, mysql, duckdb
+Objetivo:
+- Evitar recursão acidental
+- Corrigir localização dos scripts de relatório
+- Aceitar os argumentos esperados pelo app.py
+- Tentar gerar os outputs:
+    - dq_report_premium_mjv
+    - dq_ai_recommendations_current
+    - dq_current_detail
+    - dq_dimension_scores_current
+    - dq_history_chart
+    - dq_radar_chart
+    - dq_executive_report
 
-Saída:
-- stg.dq_table_metrics_u
-- stg.dq_column_metrics_u
-- stg.dq_table_scores_u
-- stg.dq_column_scores_u
-- stg.dq_table_scores_u_rules
+Uso:
+    python src/pipeline/run_data_quality_pipeline.py --sources config/sources.runtime.yml --duckdb ./dq_lab.duckdb --stg stg --rules config/12_dq_rules.yml --outdir ./output
 """
 
+from __future__ import annotations
+
 import argparse
-import datetime as dt
-import socket
 import subprocess
 import sys
 from pathlib import Path
-
-import duckdb
-import pandas as pd
-import yaml
+from typing import Iterable, Optional
 
 
-class SourceLoadError(RuntimeError):
+class CommandExecutionError(RuntimeError):
     pass
-
-
-def load_yaml(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
-
-
-def is_numeric(s: pd.Series) -> bool:
-    return pd.api.types.is_numeric_dtype(s)
-
-
-def is_datetime(s: pd.Series) -> bool:
-    return pd.api.types.is_datetime64_any_dtype(s)
-
-
-def column_metrics(df: pd.DataFrame, col: str) -> dict:
-    s = df[col]
-    total = int(len(s))
-    nulls = int(s.isna().sum())
-    nn = s.dropna()
-
-    distinct_cnt = int(nn.nunique(dropna=True)) if len(nn) else 0
-    null_rate = (nulls / total) if total else 0.0
-    distinct_ratio = (distinct_cnt / len(nn)) if len(nn) else 0.0
-
-    minv = None
-    maxv = None
-    avg_len = None
-    max_len = None
-
-    try:
-        if len(nn):
-            if is_numeric(nn):
-                minv = str(nn.min())
-                maxv = str(nn.max())
-            elif is_datetime(nn):
-                minv = str(nn.min())
-                maxv = str(nn.max())
-            else:
-                ss = nn.astype(str)
-                lens = ss.str.len()
-                avg_len = float(lens.mean()) if len(lens) else None
-                max_len = int(lens.max()) if len(lens) else None
-    except Exception:
-        pass
-
-    return {
-        "column_name": col,
-        "dtype": str(s.dtype),
-        "total": total,
-        "nulls": nulls,
-        "null_rate": float(null_rate),
-        "distinct_cnt": distinct_cnt,
-        "distinct_ratio": float(distinct_ratio),
-        "min_value": minv,
-        "max_value": maxv,
-        "avg_len": avg_len,
-        "max_len": max_len,
-    }
-
-
-def table_metrics(df: pd.DataFrame):
-    row_count = int(df.shape[0])
-    col_count = int(df.shape[1])
-    null_cells = int(df.isna().sum().sum()) if row_count and col_count else 0
-    total_cells = int(row_count * col_count)
-    null_rate = (null_cells / total_cells) if total_cells else 0.0
-    return row_count, col_count, null_cells, total_cells, float(null_rate)
-
-
-def ensure_duckdb_tables(con: duckdb.DuckDBPyConnection, stg_schema: str):
-    con.execute(f"CREATE SCHEMA IF NOT EXISTS {stg_schema};")
-
-    con.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {stg_schema}.dq_table_metrics_u (
-            run_id        VARCHAR,
-            scanned_at    TIMESTAMP,
-            source_type   VARCHAR,
-            source_ref    VARCHAR,
-            object_name   VARCHAR,
-            sample_rows   BIGINT,
-            columns       BIGINT,
-            null_cells    BIGINT,
-            total_cells   BIGINT,
-            null_rate     DOUBLE
-        );
-        """
-    )
-
-    con.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {stg_schema}.dq_column_metrics_u (
-            run_id          VARCHAR,
-            scanned_at      TIMESTAMP,
-            source_type     VARCHAR,
-            source_ref      VARCHAR,
-            object_name     VARCHAR,
-            column_name     VARCHAR,
-            dtype           VARCHAR,
-            total           BIGINT,
-            nulls           BIGINT,
-            null_rate       DOUBLE,
-            distinct_cnt    BIGINT,
-            distinct_ratio  DOUBLE,
-            min_value       VARCHAR,
-            max_value       VARCHAR,
-            avg_len         DOUBLE,
-            max_len         BIGINT
-        );
-        """
-    )
-
-
-def insert_df(con: duckdb.DuckDBPyConnection, df: pd.DataFrame, target: str):
-    if df.empty:
-        return
-    con.register("tmp_df", df)
-    con.execute(f"INSERT INTO {target} SELECT * FROM tmp_df")
-    con.unregister("tmp_df")
-
-
-def load_excel_all_sheets(path: Path, limit: int):
-    xls = pd.ExcelFile(path)
-    out = []
-    for sheet in xls.sheet_names:
-        df = pd.read_excel(path, sheet_name=sheet)
-        if limit and limit > 0:
-            df = df.head(limit)
-        out.append((f"{path.name}::{sheet}", df, str(path.resolve())))
-    return out
-
-
-def load_csv(path: Path, limit: int, sep=",", encoding="utf-8"):
-    df = pd.read_csv(
-        path,
-        nrows=limit if limit and limit > 0 else None,
-        sep=sep,
-        encoding=encoding,
-        low_memory=False,
-    )
-    return [(path.name, df, str(path.resolve()))]
-
-
-def load_parquet(path: Path, limit: int):
-    df = pd.read_parquet(path)
-    if limit and limit > 0:
-        df = df.head(limit)
-    return [(path.name, df, str(path.resolve()))]
-
-
-def scan_files_block(files_cfg: dict, limit: int):
-    inbox = Path(files_cfg.get("inbox", "./data/inbox"))
-    include_ext = [
-        x.lower()
-        for x in (files_cfg.get("include_ext") or ["csv", "parquet", "xlsx", "xls"])
-    ]
-    csv_sep = files_cfg.get("csv_sep", ",")
-    csv_encoding = files_cfg.get("csv_encoding", "utf-8")
-
-    datasets = []
-    skipped_files = []
-
-    if not inbox.exists():
-        print(f"[FILES] inbox nao existe: {inbox}")
-        return datasets, skipped_files
-
-    for p in sorted(inbox.iterdir()):
-        if not p.is_file():
-            continue
-
-        ext = p.suffix.lower().replace(".", "")
-        if ext not in include_ext:
-            continue
-
-        try:
-            if ext == "csv":
-                datasets.extend(load_csv(p, limit=limit, sep=csv_sep, encoding=csv_encoding))
-            elif ext == "parquet":
-                datasets.extend(load_parquet(p, limit=limit))
-            elif ext in ("xlsx", "xls"):
-                datasets.extend(load_excel_all_sheets(p, limit=limit))
-        except Exception as exc:
-            skipped_files.append((p.name, str(exc)))
-            print(f"[WARN] arquivo ignorado: {p.name} -> {exc}")
-
-    return datasets, skipped_files
 
 
 def find_project_root() -> Path:
     current = Path(__file__).resolve()
     for parent in [current.parent] + list(current.parents):
-        if (parent / "config").exists() or (parent / "app.py").exists():
+        if (parent / "src").exists() or (parent / "config").exists() or (parent / "data").exists():
             return parent
     return Path.cwd().resolve()
 
 
-def find_script(script_name: str) -> str:
-    project_root = find_project_root()
-    current_dir = Path(__file__).resolve().parent
+PROJECT_ROOT = find_project_root()
 
+
+def resolve_path(path_str: str) -> Path:
+    path = Path(path_str)
+    if path.is_absolute():
+        return path
+    return (PROJECT_ROOT / path).resolve()
+
+
+def ensure_directory(path_str: str) -> Path:
+    path = resolve_path(path_str)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def normalize_rules_path(path_str: str) -> str:
+    """
+    Corrige casos quebrados como:
+    'config/python export_data_quality_report.py2_dq_rules.yml'
+    """
+    raw = str(path_str).strip().replace("\\", "/")
+
+    if Path(raw).exists():
+        return raw
+
+    known_candidates = [
+        "config/12_dq_rules.yml",
+        "12_dq_rules.yml",
+        "config/python/12_dq_rules.yml",
+        "config/dq_rules.yml",
+    ]
+
+    raw_lower = raw.lower()
+    if "12_dq_rules" in raw_lower or "dq_rules" in raw_lower or "export_data_quality_report.py2_dq_rules.yml" in raw_lower:
+        for candidate in known_candidates:
+            candidate_abs = resolve_path(candidate)
+            if candidate_abs.exists():
+                return str(candidate_abs)
+
+    return raw
+
+
+def find_first_existing(candidates: list[str]) -> Optional[str]:
+    for candidate in candidates:
+        p = resolve_path(candidate)
+        if p.exists() and p.is_file():
+            return str(p)
+    return None
+
+
+def find_report_script(script_name: str) -> Optional[str]:
     candidates = [
-        current_dir / script_name,
-        current_dir.parent / script_name,
-        project_root / script_name,
-        project_root / "src" / script_name,
-        project_root / "src" / "pipeline" / script_name,
-        project_root / "src" / "scoring" / script_name,
-        project_root / "src" / "reports" / script_name,
-        project_root / "src" / "scanning" / script_name,
+        script_name,
+        f"src/reports/{script_name}",
+        f"src/pipeline/{script_name}",
+        f"data/data_quality_v2_package/{script_name}",
+        f"data/{script_name}",
+        f"reports/{script_name}",
     ]
+    return find_first_existing(candidates)
 
-    checked = []
-    for path in candidates:
-        checked.append(str(path))
-        if path.exists() and path.is_file():
-            return str(path)
 
-    raise FileNotFoundError(
-        f"Script nao encontrado: {script_name}\n"
-        f"Locais verificados:\n- " + "\n- ".join(checked)
-    )
+def find_scan_script() -> Optional[str]:
+    candidates = [
+        "15_run_sources_pipeline.py",
+        "src/pipeline/15_run_sources_pipeline.py",
+        "src/15_run_sources_pipeline.py",
+        "run_sources_pipeline.py",
+        "src/pipeline/run_sources_pipeline.py",
+    ]
+    return find_first_existing(candidates)
 
-def run_post_steps(duckdb_file: str, stg: str, rules_file: str, run_id: str, report: bool):
+
+def run_command(cmd: Iterable[str], cwd: Optional[Path] = None, required: bool = True) -> None:
+    cmd_list = [str(x) for x in cmd]
+    print("[RUN]", " ".join(cmd_list))
+    result = subprocess.run(cmd_list, cwd=str(cwd or PROJECT_ROOT))
+    if result.returncode != 0 and required:
+        raise CommandExecutionError(
+            f"Falha ao executar comando (exit code {result.returncode}): {' '.join(cmd_list)}"
+        )
+
+
+def build_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Pipeline principal de Data Quality")
+    parser.add_argument("--sources", default="config/sources.runtime.yml", help="Arquivo de fontes")
+    parser.add_argument("--duckdb", default="./dq_lab.duckdb", help="Arquivo DuckDB")
+    parser.add_argument("--stg", default="stg", help="Schema de staging")
+    parser.add_argument("--rules", default="config/12_dq_rules.yml", help="Arquivo de regras YAML")
+    parser.add_argument("--outdir", default="./output", help="Diretório de saída")
+    parser.add_argument("--logo", default="./docs/assets/logo_mjv.png", help="Logo institucional")
+    parser.add_argument("--run-id", default=None, help="Run ID específico")
+    parser.add_argument("--limit", type=int, default=100000, help="Limite de linhas por dataset")
+    parser.add_argument("--skip-legacy-report", action="store_true", help="Não gera o relatório legado premium")
+    parser.add_argument("--skip-v2-report", action="store_true", help="Não gera o relatório premium v2 integrado")
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = build_args()
+
     py = sys.executable
+    outdir = ensure_directory(args.outdir)
+    logo_path = resolve_path(args.logo)
+    rules_path = normalize_rules_path(args.rules)
 
-    score_script = find_script("10_compute_scores_universal.py")
-    column_score_script = find_script("12_compute_column_scores_universal.py")
-    table_rules_script = find_script("13_compute_table_scores_with_rules_universal.py")
-    dimension_score_script = find_script("14_compute_dimension_scores_universal.py")
+    print(f"[INFO] PROJECT_ROOT: {PROJECT_ROOT}")
+    print(f"[INFO] Regras utilizadas: {rules_path}")
 
-    cmds = [
-        [py, score_script, "--duckdb", duckdb_file, "--stg", stg, "--run_id", run_id],
-        [py, column_score_script, "--duckdb", duckdb_file, "--stg", stg, "--rules", rules_file, "--run_id", run_id],
-        [py, table_rules_script, "--duckdb", duckdb_file, "--stg", stg, "--run_id", run_id],
-        [py, dimension_score_script, "--duckdb", duckdb_file, "--stg", stg, "--run_id", run_id],
-    ]
+    # 1) Scanner técnico base (se existir no projeto)
+    scan_script = find_scan_script()
+    if scan_script:
+        print(f"[INFO] Scanner encontrado: {scan_script}")
+        scan_cmd = [
+            py,
+            scan_script,
+            "--sources", str(resolve_path(args.sources)),
+            "--duckdb", str(resolve_path(args.duckdb)),
+            "--stg", args.stg,
+            "--rules", str(rules_path),
+        ]
+        if args.limit is not None:
+            scan_cmd.extend(["--limit", str(args.limit)])
+        run_command(scan_cmd)
+    else:
+        print("[WARN] Scanner não encontrado. Seguindo para geração dos relatórios com a base existente no DuckDB.")
 
-    if report:
-        report_script = find_script("11_show_report_like_image.py")
-        cmds.append([py, report_script, "--duckdb", duckdb_file, "--stg", stg, "--run_id", run_id])
+    # 2) Relatório legado premium
+    if not args.skip_legacy_report:
+        legacy_script = find_report_script("export_data_quality_report.py")
+        if legacy_script:
+            print(f"[INFO] Relatório legado encontrado: {legacy_script}")
+            legacy_cmd = [
+                py,
+                legacy_script,
+                "--duckdb", str(resolve_path(args.duckdb)),
+                "--stg", args.stg,
+                "--outdir", str(outdir),
+            ]
+            if logo_path.exists():
+                legacy_cmd.extend(["--logo", str(logo_path)])
+            if args.run_id:
+                legacy_cmd.extend(["--run-id", args.run_id])
+            run_command(legacy_cmd)
+        else:
+            print("[WARN] export_data_quality_report.py não encontrado. Relatório legado não será gerado.")
 
-    for cmd in cmds:
-        print("[RUN]", " ".join(cmd))
-        result = subprocess.run(cmd)
-        if result.returncode != 0:
-            raise SystemExit(result.returncode)
+    # 3) Relatório premium v2 integrado
+    if not args.skip_v2_report:
+        v2_script = find_report_script("export_data_quality_report_v2_integrated.py")
+        if v2_script:
+            print(f"[INFO] Relatório V2 encontrado: {v2_script}")
+            v2_cmd = [
+                py,
+                v2_script,
+                "--duckdb", str(resolve_path(args.duckdb)),
+                "--schema", args.stg,
+                "--outdir", str(outdir),
+            ]
+            if logo_path.exists():
+                v2_cmd.extend(["--logo", str(logo_path)])
+            if args.run_id:
+                v2_cmd.extend(["--run-id", args.run_id])
+            run_command(v2_cmd)
+        else:
+            raise FileNotFoundError(
+                "Script não encontrado: export_data_quality_report_v2_integrated.py\n"
+                "Verifique se ele está em uma destas pastas:\n"
+                "- data/data_quality_v2_package/\n"
+                "- src/reports/\n"
+                "- data/\n"
+                "- reports/"
+            )
 
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--sources", required=True)
-    ap.add_argument("--duckdb", required=True)
-    ap.add_argument("--stg", default="stg")
-    ap.add_argument("--rules", required=True)
-    ap.add_argument("--run_id", default=None)
-    ap.add_argument("--limit", type=int, default=50000)
-    ap.add_argument("--report", action="store_true")
-    args = ap.parse_args()
-
-    cfg = load_yaml(args.sources)
-    run_id = args.run_id or dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    scanned_at = dt.datetime.now()
-
-    out = duckdb.connect(args.duckdb)
-    ensure_duckdb_tables(out, args.stg)
-
-    table_rows = []
-    col_rows = []
-
-    files_cfg = cfg.get("files") or {}
-    file_datasets, skipped_files = scan_files_block(files_cfg, limit=args.limit)
-
-    for object_name, df, source_ref in file_datasets:
-        sample_rows, columns, null_cells, total_cells, null_rate = table_metrics(df)
-
-        table_rows.append({
-            "run_id": run_id,
-            "scanned_at": scanned_at,
-            "source_type": "file",
-            "source_ref": source_ref,
-            "object_name": object_name,
-            "sample_rows": sample_rows,
-            "columns": columns,
-            "null_cells": null_cells,
-            "total_cells": total_cells,
-            "null_rate": null_rate,
-        })
-
-        for col in df.columns:
-            cm = column_metrics(df, col)
-            col_rows.append({
-                "run_id": run_id,
-                "scanned_at": scanned_at,
-                "source_type": "file",
-                "source_ref": source_ref,
-                "object_name": object_name,
-                **cm,
-            })
-
-        print(f"[SCAN] file -> {object_name} rows={sample_rows} cols={columns}")
-
-    insert_df(out, pd.DataFrame(table_rows), f"{args.stg}.dq_table_metrics_u")
-    insert_df(out, pd.DataFrame(col_rows), f"{args.stg}.dq_column_metrics_u")
-
-    out.close()
-
-    print(f"[SCAN] run_id={run_id} datasets={len(table_rows)} col_metrics={len(col_rows)}")
-
-    if not table_rows:
-        print("Nenhum dataset carregado.")
-        return
-
-    run_post_steps(args.duckdb, args.stg, args.rules, run_id, args.report)
-    print("[PIPELINE] COMPLETO.")
+    print("\n[OK] Pipeline executado com sucesso.")
+    print(f"[OK] Relatórios disponíveis em: {outdir}")
+    print("[OK] Outputs esperados:")
+    print(f"     - {outdir / 'dq_ai_recommendations_current.csv'}")
+    print(f"     - {outdir / 'dq_current_detail.csv'}")
+    print(f"     - {outdir / 'dq_dimension_scores_current.csv'}")
+    print(f"     - {outdir / 'dq_history_chart.html'}")
+    print(f"     - {outdir / 'dq_radar_chart.html'}")
+    print("     - dq_report_premium_mjv_YYYYMMDD_HHMMSS.xlsx / .html")
+    print("     - dq_executive_report_v2_YYYYMMDD_HHMMSS.xlsx / .html")
+    print("     - dq_report_premium_mjv_v2_YYYYMMDD_HHMMSS.xlsx / .html")
 
 
 if __name__ == "__main__":

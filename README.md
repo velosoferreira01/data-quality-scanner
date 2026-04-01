@@ -1,6 +1,15 @@
-# Universal Data Quality Scanner
+###  ######################################################################################  ###
+###                                 Data Quality Scanner - MJV                               ###
+###                     Scanning de análise  de qualidade de dados - MJV.                    ###
+###  ######################################################################################  ###
 
-Projeto para análise universal de qualidade de dados.
+## Pré-requisitos
+Antes de executar, tenha instalado:
+
+- Python 3.11 ou superior
+- pip
+- Dependências do projeto em requirements.txt
+
 
 Suporta múltiplas fontes:
 
@@ -8,18 +17,119 @@ Suporta múltiplas fontes:
 - Excel
 - Parquet
 - DuckDB
-- PostgreSQL
+- PostgreSQL usa porta 5432
+- MySQL/MariaDB usam porta 3306
+- SQL Server usa porta 1433
+- Oracle usa porta 1521
+- SQLite e DuckDB usam caminho de arquivo
 
-O pipeline executa:
 
-1. Ingestão de dados
-2. Data scan
-3. Métricas de qualidade
-4. Score por coluna
-5. Score por tabela
-6. Aplicação de regras
-7. Geração de relatórios
+###  ######################################################################################  ###
+###  ######################################## PASSO A PASSO ###############################  ###
+###  ######################################################################################  ###
 
----
+##### Instalação
+No terminal, dentro da pasta do projeto:
+Execute
+      - pip install -r requirements.txt
 
-## Estrutura do Projeto
+##### Configuração
+
+1) Arquivo config/config.yml
+Use esse arquivo para as configurações gerais do projeto.
+   - Basta ativar enabled: true no banco desejado.
+
+2) Arquivo config/sources.yml
+Nele você define quais arquivos, pastas ou bancos serão lidos pelo scanner da MJV.
+
+3) Arquivo .env
+Crie um .env 
+Obs.: a partir do .env.example abaixo informe e configure apenas as variáveis que realmente for usar.
+- exemplo:
+   POSTGRES_HOST=localhost
+   POSTGRES_PORT=5432
+   POSTGRES_DB=meu_banco
+   POSTGRES_USER=usuario
+   POSTGRES_PASSWORD=senha
+
+4) Arquivo config/12_dq_rules.yml
+Define as regras e pesos usados no cálculo de score de qualidade.
+
+###  ######################################################################################  ###
+###  ################## HABILITAR BANCO DE DADOS ##########################################  ###
+###  ######################################################################################  ###
+Como habilitar uma fonte de dados
+A recomendação para os primeiros testes é habilitar apenas uma fonte por vez.
+
+###  ######################################################################################  ###
+###  ###################### EXECUÇÃO DO SCANNING ##########################################  ###
+###  ######################################################################################  ###
+
+# Execute no PowerShell:
+   - python app.py
+
+# Esse comando faz:
+- Gera o sources.runtime.yml
+- Executa o pipelines
+- grava as métricas. No caso está gravando no banco container do BD DuckDB
+- gera os relatórios na pasta output
+
+# Saídas geradas
+Após a execução, o projeto pode gerar arquivos como:
+- Relatórios HTML
+- Relatórios Excel
+- Arquivos CSV (Auxiliar)
+- Arquivos PDF
+- Base DuckDB com métricas consolidadas
+
+Exemplo:
+output/
+├── dq_report_premium_mjv_v2_YYYYMMDD_HHMMSS.html
+├── dq_report_premium_mjv_v2_YYYYMMDD_HHMMSS.xlsx
+├── dq_executive_report_v2_YYYYMMDD_HHMMSS.html
+├── dq_executive_report_v2_YYYYMMDD_HHMMSS.xlsx
+├── dq_radar_chart.html
+├── dq_history_chart.html
+├── dq_current_detail.csv
+├── dq_dimension_scores_current.csv
+└── dq_ai_recommendations_current.csv
+
+
+###  ######################################################################################  ###
+###  ############################### NOTAS ################################################  ###
+###  ######################################################################################  ###
+1) Banco local do scanner
+O scanner mjv - salva os resultados no arquivo DuckDB:
+- dq_lab.duckdb
+
+2) Consultando os resultados no DuckDB
+import duckdb
+
+con = duckdb.connect("dq_lab.duckdb")
+
+df = con.execute(\"\"\"
+SELECT *
+FROM stg.dq_table_scores_u_rules
+ORDER BY score_final DESC
+\"\"\").df()
+
+print(df)
+
+con.close()
+
+
+3) Exemplo para listar tabelas do schema stg:
+
+import duckdb
+
+con = duckdb.connect("dq_lab.duckdb")
+
+print(con.execute(\"\"\"
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'stg'
+\"\"\").fetchall())
+
+con.close()
+
+

@@ -1,0 +1,57 @@
+Data_Quality/
+│
+├── app.py
+├── requirements.txt
+├── README.md
+├── .gitignore
+├── .env.example
+├── LICENSE
+│
+├── config/
+│   ├── config.multibanco.yml
+│   ├── sources.runtime.yml
+│   ├── 12_dq_rules.yml
+│   └── py2_dq_rules.yml
+│
+├── data/
+│   ├── inbox/
+│   │   └── .gitkeep
+│   └── sample/
+│       ├── clientes_exemplo.csv
+│       └── pedidos_exemplo.xlsx
+│
+├── output/
+│   └── .gitkeep
+│
+├── src/
+│   ├── pipeline/
+│   │   └── run_data_quality_pipeline.py
+│   │
+│   ├── reports/
+│   │   ├── export_data_quality_report.py
+│   │   └── assets/
+│   │       └── logo_mjv.png
+│   │
+│   ├── scoring/
+│   │   ├── 10_compute_scores_universal.py
+│   │   ├── 12_compute_column_scores_universal.py
+│   │   ├── 13_compute_table_scores_with_rules_universal.py
+│   │   └── 14_compute_dimension_scores_universal.py
+│   │
+│   └── utils/
+│       └── helpers.py
+│
+├── docs/
+│   ├── architecture.md
+│   ├── how_to_run.md
+│   ├── supported_sources.md
+│   └── images/
+│
+├── docker/
+│   ├── Dockerfile
+│   └── docker-compose.yml
+│
+└── tests/
+    ├── test_config.py
+    ├── test_pipeline.py
+    └── test_reports.py

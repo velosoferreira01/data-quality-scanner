@@ -3,7 +3,10 @@ pandas
 pyyaml
 psycopg2-binary
 pymysql
+matplotlib
+xlsxwriter
 sqlalchemy
 openpyxl
 xlrd
 pyarrow
+seaborn

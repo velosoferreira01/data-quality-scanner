@@ -1,0 +1,100 @@
+scan:
+  input_dir: "C:/Users/Daniel/Downloads/Data_Quality/data"
+  file_patterns:
+    - "*.csv"
+    - "*.xlsx"
+    - "*.xls"
+    - "*.parquet"
+  csv_sep: ","
+  csv_encoding: "utf-8"
+
+duckdb:
+  path: "./dq_lab.duckdb"
+  schema: "stg"
+
+rules:
+  path: "config/py2_dq_rules.yml"
+
+output:
+  dir: "./output"
+
+databases:
+
+  postgres:
+    enabled: false
+    host: "${POSTGRES_HOST}"
+    port: ${POSTGRES_PORT}
+    db: "${POSTGRES_DB}"
+    user: "${POSTGRES_USER}"
+    password: "${POSTGRES_PASSWORD}"
+    include_schemas:
+      - public
+    include_tables:
+      - "public.clientes_teste"
+    limit: 100000
+
+  mysql:
+    enabled: false
+    host: "${MYSQL_HOST}"
+    port: ${MYSQL_PORT}
+    db: "${MYSQL_DB}"
+    user: "${MYSQL_USER}"
+    password: "${MYSQL_PASSWORD}"
+    include_schemas:
+      - default
+    include_tables:
+      - "clientes_teste"
+    limit: 100000
+
+  sqlserver:
+    enabled: false
+    host: "${SQLSERVER_HOST}"
+    port: ${SQLSERVER_PORT}
+    db: "${SQLSERVER_DB}"
+    user: "${SQLSERVER_USER}"
+    password: "${SQLSERVER_PASSWORD}"
+    include_schemas:
+      - dbo
+    include_tables:
+      - "dbo.clientes_teste"
+    limit: 100000
+
+  oracle:
+    enabled: false
+    host: "${ORACLE_HOST}"
+    port: ${ORACLE_PORT}
+    db: "${ORACLE_SERVICE}"
+    user: "${ORACLE_USER}"
+    password: "${ORACLE_PASSWORD}"
+    include_schemas:
+      - SYSTEM
+    include_tables:
+      - "SYSTEM.CLIENTES_TESTE"
+    limit: 100000
+
+  mariadb:
+    enabled: false
+    host: "${MARIADB_HOST}"
+    port: ${MARIADB_PORT}
+    db: "${MARIADB_DB}"
+    user: "${MARIADB_USER}"
+    password: "${MARIADB_PASSWORD}"
+    include_schemas:
+      - default
+    include_tables:
+      - "clientes_teste"
+    limit: 100000
+
+  sqlite:
+    enabled: false
+    dbfile: "${SQLITE_DBFILE}"
+    include_tables:
+      - "clientes_teste"
+    limit: 100000
+
+  duckdb_source:
+    enabled: false
+    dbfile: "${DUCKDB_SOURCE_DBFILE}"
+    include_tables:
+      - "clientes_teste"
+    limit: 100000

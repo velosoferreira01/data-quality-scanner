@@ -1,7 +1,6 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
-16_export_universal_report.py
-Exporta relatorio com 3 partes:
+Exporta relatorio com:
 1. resumo geral por dataset
 2. dimensoes por dataset
 3. detalhe por coluna
@@ -9,12 +8,12 @@ Exporta relatorio com 3 partes:
 
 import argparse
 from pathlib import Path
-
 import duckdb
 import pandas as pd
+from playwright.sync_api import sync_playwright
 
 
-def table_exists(con: duckdb.DuckDBPyConnection, schema: str, table: str) -> bool:
+def table_exists(con, schema, table):
     row = con.execute(
         """
         SELECT 1
@@ -27,24 +26,75 @@ def table_exists(con: duckdb.DuckDBPyConnection, schema: str, table: str) -> boo
     return row is not None
 
 
-def empty_dimensions_df() -> pd.DataFrame:
+def empty_dimensions_df():
     return pd.DataFrame(
         columns=[
-            "run_id",
-            "scanned_at",
-            "source_type",
-            "source_ref",
-            "object_name",
-            "dim_completude",
-            "dim_unicidade",
-            "dim_consistencia",
-            "dim_validade",
-            "dim_integridade_ref",
-            "dim_freshness",
-            "score_final",
+            "run_id","scanned_at","source_type","source_ref","object_name",
+            "dim_completude","dim_unicidade","dim_consistencia","dim_validade",
+            "dim_integridade_ref","dim_freshness","score_final",
         ]
     )
 
+
+def get_latest_run_id(con, schema):
+    # tentativa principal
+    try:
+        row = con.execute(f"""
+            SELECT run_id
+            FROM {schema}.dq_table_scores_u_rules
+            WHERE run_id IS NOT NULL
+            ORDER BY run_id DESC
+            LIMIT 1
+        """).fetchone()
+        if row:
+            return row[0]
+    except:
+        pass
+
+    # fallback
+    try:
+        row = con.execute(f"""
+            SELECT run_id
+            FROM {schema}.dq_table_scores_u
+            WHERE run_id IS NOT NULL
+            ORDER BY run_id DESC
+            LIMIT 1
+        """).fetchone()
+        if row:
+            return row[0]
+    except:
+        pass
+
+    return None
+
+def export_html_to_pdf(html_file: Path):
+    """
+    Converte HTML em PDF mantendo layout visual
+    """
+    pdf_file = html_file.with_suffix(".pdf")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+
+        page.goto(html_file.as_uri(), wait_until="networkidle")
+        page.wait_for_timeout(3000)
+
+        page.pdf(
+            path=str(pdf_file),
+            format="A4",
+            print_background=True,
+            margin={
+                "top": "12mm",
+                "right": "10mm",
+                "bottom": "12mm",
+                "left": "10mm"
+            }
+        )
+
+        browser.close()
+
+    print(f"[EXPORT] PDF gerado: {pdf_file}")
 
 def main():
     ap = argparse.ArgumentParser()
@@ -59,163 +109,65 @@ def main():
 
     con = duckdb.connect(args.duckdb)
 
-    required_tables = ["dq_table_scores_u_rules", "dq_column_scores_u"]
-    missing_required = [name for name in required_tables if not table_exists(con, args.stg, name)]
-    if missing_required:
-        print(
-            "[EXPORT] Faltam tabelas obrigatorias para exportacao: "
-            + ", ".join(f"{args.stg}.{name}" for name in missing_required)
-        )
-        print("[EXPORT] Rode primeiro o pipeline completo para gerar scores e regras.")
-        con.close()
+    required = ["dq_table_scores_u_rules", "dq_column_scores_u"]
+    missing = [t for t in required if not table_exists(con, args.stg, t)]
+
+    if missing:
+        print("[EXPORT] Faltam tabelas:", missing)
         return
 
-    if args.run_id:
-        run_id = args.run_id
-    else:
-        row = con.execute(
-            f"""
-            SELECT run_id
-            FROM {args.stg}.dq_table_scores_u_rules
-            ORDER BY scanned_at DESC
-            LIMIT 1
-            """
-        ).fetchone()
+    run_id = args.run_id or get_latest_run_id(con, args.stg)
 
-        if not row:
-            print("[EXPORT] Nao ha run disponivel.")
-            con.close()
-            return
+    if not run_id:
+        print("[EXPORT] Nao ha run disponivel.")
+        return
 
-        run_id = row[0]
+    print(f"[EXPORT] Usando run_id: {run_id}")
 
-    summary = con.execute(
-        f"""
-        SELECT
-            run_id,
-            scanned_at,
-            source_type,
-            source_ref,
-            object_name,
-            score_base,
-            rules_penalty_avg,
-            score_final
+    summary = con.execute(f"""
+        SELECT *
         FROM {args.stg}.dq_table_scores_u_rules
         WHERE run_id = ?
-        ORDER BY score_final DESC, object_name
-        """,
-        [run_id],
-    ).fetchdf()
+    """, [run_id]).fetchdf()
 
     if table_exists(con, args.stg, "dq_table_dimension_scores_u"):
-        dimensions = con.execute(
-            f"""
-            SELECT
-                run_id,
-                scanned_at,
-                source_type,
-                source_ref,
-                object_name,
-                dim_completude,
-                dim_unicidade,
-                dim_consistencia,
-                dim_validade,
-                dim_integridade_ref,
-                dim_freshness,
-                score_final
+        dimensions = con.execute(f"""
+            SELECT *
             FROM {args.stg}.dq_table_dimension_scores_u
             WHERE run_id = ?
-            ORDER BY score_final DESC, object_name
-            """,
-            [run_id],
-        ).fetchdf()
+        """, [run_id]).fetchdf()
     else:
-        print(f"[EXPORT] Aviso: {args.stg}.dq_table_dimension_scores_u nao existe; exportando sem a aba de dimensoes preenchida.")
         dimensions = empty_dimensions_df()
 
-    detail = con.execute(
-        f"""
-        SELECT
-            run_id,
-            scanned_at,
-            source_type,
-            source_ref,
-            object_name,
-            column_name,
-            dtype,
-            total,
-            null_rate,
-            distinct_ratio,
-            rule_not_null,
-            rule_unique,
-            rule_regex,
-            rule_range_min,
-            rule_range_max,
-            rule_allowed_vals,
-            violations,
-            score_base,
-            score_rules,
-            score_final
+    detail = con.execute(f"""
+        SELECT *
         FROM {args.stg}.dq_column_scores_u
         WHERE run_id = ?
-        ORDER BY object_name, column_name
-        """,
-        [run_id],
-    ).fetchdf()
+    """, [run_id]).fetchdf()
 
-    summary.to_csv(outdir / f"dq_summary_{run_id}.csv", index=False, encoding="utf-8-sig")
-    dimensions.to_csv(outdir / f"dq_dimensions_{run_id}.csv", index=False, encoding="utf-8-sig")
-    detail.to_csv(outdir / f"dq_detail_{run_id}.csv", index=False, encoding="utf-8-sig")
-
-    summary_json = summary.to_json(orient="records", force_ascii=False, indent=2, date_format="iso")
-    dimensions_json = dimensions.to_json(orient="records", force_ascii=False, indent=2, date_format="iso")
-    detail_json = detail.to_json(orient="records", force_ascii=False, indent=2, date_format="iso")
-
-    (outdir / f"dq_summary_{run_id}.json").write_text(summary_json, encoding="utf-8")
-    (outdir / f"dq_dimensions_{run_id}.json").write_text(dimensions_json, encoding="utf-8")
-    (outdir / f"dq_detail_{run_id}.json").write_text(detail_json, encoding="utf-8")
+    summary.to_csv(outdir / f"dq_summary_{run_id}.csv", index=False)
+    dimensions.to_csv(outdir / f"dq_dimensions_{run_id}.csv", index=False)
+    detail.to_csv(outdir / f"dq_detail_{run_id}.csv", index=False)
 
     html = f"""
-    <html>
-    <head>
-      <meta charset="utf-8"/>
-      <title>Data Quality Report - {run_id}</title>
-      <style>
-        body {{ font-family: Arial, sans-serif; margin: 24px; }}
-        h1, h2 {{ color: #1f2937; }}
-        table {{ border-collapse: collapse; width: 100%; margin-bottom: 24px; }}
-        th, td {{ border: 1px solid #ddd; padding: 8px; font-size: 14px; }}
-        th {{ background: #f3f4f6; text-align: left; }}
-        tr:nth-child(even) {{ background: #fafafa; }}
-      </style>
-    </head>
-    <body>
-      <h1>Data Quality Report</h1>
-      <p><strong>run_id:</strong> {run_id}</p>
-
-      <h2>1. Resumo geral por dataset</h2>
-      {summary.to_html(index=False, border=0)}
-
-      <h2>2. Nota por dimensao</h2>
-      {dimensions.to_html(index=False, border=0)}
-
-      <h2>3. Detalhe por coluna</h2>
-      {detail.to_html(index=False, border=0)}
-    </body>
-    </html>
+    <html><body>
+    <h1>Data Quality Report</h1>
+    <h2>Resumo</h2>{summary.to_html(index=False)}
+    <h2>Dimensoes</h2>{dimensions.to_html(index=False)}
+    <h2>Detalhe</h2>{detail.to_html(index=False)}
+    </body></html>
     """
-    (outdir / f"dq_report_{run_id}.html").write_text(html, encoding="utf-8")
+
+    html_file = outdir / f"dq_report_{run_id}.html"
+    html_file.write_text(html, encoding="utf-8")
+
+    try:
+        export_html_to_pdf(html_file)
+    except Exception as e:
+        print(f"[WARN] Falha ao gerar PDF: {e}")
 
     print("[EXPORT] OK")
-    print(outdir / f"dq_summary_{run_id}.csv")
-    print(outdir / f"dq_dimensions_{run_id}.csv")
-    print(outdir / f"dq_detail_{run_id}.csv")
-    print(outdir / f"dq_summary_{run_id}.json")
-    print(outdir / f"dq_dimensions_{run_id}.json")
-    print(outdir / f"dq_detail_{run_id}.json")
-    print(outdir / f"dq_report_{run_id}.html")
-
-    con.close()
+    print(outdir)
 
 
 if __name__ == "__main__":
