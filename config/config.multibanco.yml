@@ -1,5 +1,5 @@
 scan:
-  input_dir: "C:/Users/Daniel/Downloads/Data_Quality/data"
+  input_dir: "C:/Users/dveloso/Downloads/data-quality-scanner/data"
   file_patterns:
     - "*.csv"
     - "*.xlsx"

@@ -1,5 +1,5 @@
 files:
-  inbox: C:/Users/Daniel/Downloads/Data_Quality/data
+  inbox: C:/Users/dveloso/Downloads/data-quality-scanner/data
   include_ext:
   - csv
   - xlsx
