@@ -25,21 +25,29 @@ Suporta múltiplas fontes:
 
 
 ###  ######################################################################################  ###
-###  ######################################## PASSO A PASSO ###############################  ###
+###  #################################### PASSO A PASSO ###################################  ###
 ###  ######################################################################################  ###
+
+# obs se não tiver as dependências intaladas... Instale tudo: python -m pip install pyyaml playwright
+# Ou separado:
+# obs se não tiver instalado playwright execute o seguinte comando: pip install playwright ou python -m playwright install
+# obs se não tiver instalado yaml       execute o seguinte comando: pip install pyyaml
+# obs se não tiver instalado plotly       execute python -m pip install plotly
 
 ##### Instalação
 No terminal, dentro da pasta do projeto:
 Execute
       - pip install -r requirements.txt
+      - python -m pip install -r requirements.txt
 
 ##### Configuração
 
 1) Arquivo config/config.yml
 Use esse arquivo para as configurações gerais do projeto.
-   - Basta ativar enabled: true no banco desejado.
 
-2) Arquivo config/sources.yml
+2) Arquivo -- config/arquivos sources.runtime e config.multibanco
+   - sources.runtime.yml na linha inbox   ### Ajustar o diretório dos datasets
+   - config.multibanco na linha input_dir ### Ajustar o diretório dos datasets
 Nele você define quais arquivos, pastas ou bancos serão lidos pelo scanner da MJV.
 
 3) Arquivo .env
