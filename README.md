@@ -28,7 +28,7 @@ Suporta múltiplas fontes:
 ###  #################################### PASSO A PASSO ###################################  ###
 ###  ######################################################################################  ###
 
-# obs se não tiver as dependências intaladas... Instale tudo: python -m pip install pyyaml playwright
+# obs se não tiver as dependências intaladas... Instale tudo: python -m pip install pyyaml playwright duckdb
 # Ou separado:
 # obs se não tiver instalado playwright execute o seguinte comando: pip install playwright ou python -m playwright install
 # obs se não tiver instalado yaml       execute o seguinte comando: pip install pyyaml

@@ -1,0 +1,3 @@
+# Execução do Scanning MJV
+
+.venv\Scripts\python app.py

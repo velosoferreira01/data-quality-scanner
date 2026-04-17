@@ -1,71 +1,38 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
-
-# Environment
-.env
-.env.*
-
-# Databases
-*.duckdb
-*.db
-
-# Logs
-logs/
-*.log
-
-# Output
-output/
-
-# Backup
-bkp/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# VSCode
-.vscode/
-
-# Python environments
+# Virtual environment
 .venv/
 venv/
 
-# Cache
-.cache/
-
-############################################
-# dados de teste
-############################################
-
-data/*.xlsx
-data/*.csv
-data/*.parquet
-data/*.json
-
-############################################
-# outputs
-############################################
-
-output/
-*.duckdb
-
-############################################
-# configs locais
-############################################
-
-config/sources.runtime.yml
-
-############################################
-# cache python
-############################################
-
+# Python cache
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-############################################
-# variáveis sensíveis
-############################################
+# Jupyter/IPython
+.ipynb_checkpoints/
 
+# DuckDB local
+*.duckdb
+*.wal
+
+# Output files
+output/
+reports/
+*.html
+*.xlsx
+*.csv
+*.json
+*.pdf
+
+# OS / Editor
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Env files
 .env
+.env.*
+
+# Logs
+*.log
