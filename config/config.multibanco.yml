@@ -1,5 +1,5 @@
 scan:
-  input_dir: "C:/Users/dveloso/data-quality-scanner/data"
+  input_dir: "C:/Users/dveloso/OneDrive/DataQuality/data"
   file_patterns:
     - "*.csv"
     - "*.xlsx"
