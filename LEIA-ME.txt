@@ -1,0 +1,61 @@
+MJV DATA QUALITY - CONFIGURAÇÃO DE UPLOAD PARA 2 GB
+====================================================
+
+Copie para a RAIZ do projeto:
+
+1. A pasta .streamlit
+2. O arquivo aplicar_upload_2gb.py
+
+A estrutura ficará:
+
+data-quality-scanner/
+├── .streamlit/
+│   └── config.toml
+├── aplicar_upload_2gb.py
+├── web_app.py
+├── app.py
+└── ...
+
+PASSO A PASSO
+-------------
+
+1) Abra o PowerShell na raiz do projeto.
+
+2) Ative a .venv:
+
+   .\.venv\Scripts\Activate.ps1
+
+3) Execute:
+
+   python .\aplicar_upload_2gb.py
+
+4) Valide:
+
+   python -m py_compile .\web_app.py
+
+5) Pare o Streamlit, se estiver rodando:
+
+   Ctrl + C
+
+6) Inicie novamente:
+
+   python -m streamlit run web_app.py
+
+7) Confira:
+
+   Get-Content .\.streamlit\config.toml
+
+Resultado esperado:
+
+[server]
+maxUploadSize = 2048
+maxMessageSize = 2048
+
+IMPORTANTE
+----------
+- O limite é de 2 GB POR ARQUIVO.
+- O script cria backup do web_app.py antes da alteração.
+- O script cria backup do config.toml caso já exista.
+- Arquivos de 2 GB podem consumir bem mais de 2 GB de RAM durante o processamento,
+  especialmente CSV e Excel.
+- O aumento do limite de upload não altera o motor de leitura dos dados.

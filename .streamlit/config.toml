@@ -1,6 +1,7 @@
 [server]
-maxUploadSize = 500
-headless = true
+# Limite máximo de upload por arquivo, em MB.
+# 2048 MB = 2 GB.
+maxUploadSize = 2048
 
-[browser]
-gatherUsageStats = false
+# Mantido alinhado ao limite de upload para evitar bloqueios de mensagens grandes.
+maxMessageSize = 2048
