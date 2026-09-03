@@ -1,0 +1,20 @@
+enabled: true
+auto_detect: true
+invalid_sample_limit: 100
+municipalities_file: brasil_municipios.csv
+
+datasets:
+  default:
+    auto_detect: true
+    columns: {}
+
+  # Exemplo de mapeamento explícito:
+  # cadastro_clientes.csv:
+  #   auto_detect: true
+  #   columns:
+  #     cpf: nr_cpf
+  #     cnpj: nr_cnpj
+  #     uf: sg_uf
+  #     municipio: nm_municipio
+  #     codigo_ibge: cod_ibge
+  #     cep: nr_cep

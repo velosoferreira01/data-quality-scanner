@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+CONSOLE_CLEAN_VERSION = "2026-07-27-v4"
+
 import argparse
 import os
 import re
@@ -193,11 +195,32 @@ def build_sources_yaml(cfg: dict, runtime_path: str) -> Path:
     return runtime_file
 
 
-def run_command(cmd: List[str]) -> None:
+def run_command(cmd: List[str], verbose: bool = False) -> None:
+    """Executa o pipeline ocultando logs técnicos no modo normal."""
     cmd = [str(x) for x in cmd]
-    print("\n[RUN]", " ".join(cmd), "\n")
-    result = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
+
+    if verbose:
+        print("\n[RUN]", " ".join(cmd), "\n")
+        result = subprocess.run(cmd, cwd=str(PROJECT_ROOT))
+        captured_output = ""
+    else:
+        result = subprocess.run(
+            cmd,
+            cwd=str(PROJECT_ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        captured_output = result.stdout or ""
+
     if result.returncode != 0:
+        print("\n" + "=" * 72)
+        print("ERRO DURANTE A EXECUÇÃO")
+        print("=" * 72)
+        if captured_output:
+            print(captured_output)
         raise SystemExit(result.returncode)
 
 
@@ -230,6 +253,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rules", default=None, help="Sobrescreve o arquivo de regras")
     parser.add_argument("--outdir", default=None, help="Sobrescreve o diretório de saída")
     parser.add_argument("--skip-run", action="store_true", help="Apenas gera o sources.runtime.yml sem executar o pipeline")
+    parser.add_argument("--verbose", action="store_true", help="Exibe todos os logs técnicos")
     return parser.parse_args()
 
 def export_html_file_to_pdf(html_file: Path, wait_ms: int = 3000) -> Path:
@@ -264,40 +288,48 @@ def export_html_file_to_pdf(html_file: Path, wait_ms: int = 3000) -> Path:
     return pdf_file
 
 
-def export_all_htmls_to_pdf(outdir: str, started_at: float) -> None:
-    """
-    Converte apenas os HTMLs gerados/modificados nesta execução.
-    """
-    outdir_path = Path(outdir).resolve()
+def export_all_htmls_to_pdf(
+    outdir: str,
+    started_at: float,
+    verbose: bool = False,
+) -> int:
+    """Converte apenas os HTMLs gerados nesta execução."""
+    outdir_path = resolve_path(outdir)
 
     if not outdir_path.exists():
-        print(f"[WARN] Diretório de saída não encontrado para PDF: {outdir_path}")
-        return
+        if verbose:
+            print(f"[WARN] Diretório de saída não encontrado: {outdir_path}")
+        return 0
 
     html_files = sorted(
-        [
-            f for f in outdir_path.glob("*.html")
-            if f.stat().st_mtime >= started_at
-        ]
+        f for f in outdir_path.glob("*.html")
+        if f.stat().st_mtime >= started_at
     )
 
-    if not html_files:
-        print(f"[INFO] Nenhum HTML novo encontrado para converter em PDF em: {outdir_path}")
-        return
-
-    print(f"[INFO] Convertendo {len(html_files)} HTML(s) do run atual em PDF...")
-
+    converted = 0
     for html_file in html_files:
         try:
             pdf_file = export_html_file_to_pdf(html_file)
-            print(f"[OK] PDF  : {pdf_file}")
-        except Exception as e:
-            print(f"[WARN] Falha ao converter {html_file.name} para PDF: {e}")
+            converted += 1
+            if verbose:
+                print(f"[OK] PDF: {pdf_file}")
+        except Exception as exc:
+            if verbose:
+                print(f"[WARN] Falha ao converter {html_file.name}: {exc}")
+
+    return converted
 
 
 def main() -> None:
     started_at = time.time()
     args = parse_args()
+    line = "=" * 72
+
+    print(line)
+    print("MJV DATA QUALITY PLATFORM".center(72))
+    print(line)
+    print()
+    print("[1/4] Inicializando ambiente...")
 
     env_path = resolve_path(args.env_file)
     if env_path.exists():
@@ -305,7 +337,6 @@ def main() -> None:
 
     cfg = load_config(args.config)
     validate_enabled_databases(cfg)
-
     runtime_path = build_sources_yaml(cfg, args.sources_runtime)
 
     duckdb_path = args.duckdb or cfg.get("duckdb", {}).get("path", "./dq_lab.duckdb")
@@ -313,42 +344,45 @@ def main() -> None:
     rules_path = args.rules or cfg.get("rules", {}).get("path", "config/12_dq_rules.yml")
     outdir_path = args.outdir or cfg.get("output", {}).get("dir", "./output")
 
-    print("[INFO] Config carregado com sucesso")
-    print(f"[INFO] Runtime gerado em: {runtime_path}")
-    print(f"[INFO] Bancos habilitados: {len(build_database_sources(cfg))}")
-
     if args.skip_run:
-        print("[INFO] Execução do pipeline ignorada por --skip-run")
+        print("[2/4] Pipeline ignorado por --skip-run.")
+        print("[3/4] Nenhum relatório gerado.")
+        print("[4/4] Processo finalizado.")
         return
 
     pipeline_script = find_pipeline_script()
-
     cmd = [
         sys.executable,
         pipeline_script,
-        "--sources",
-        str(runtime_path),
-        "--duckdb",
-        str(duckdb_path),
-        "--stg",
-        str(stg_schema),
-        "--rules",
-        str(rules_path),
-        "--outdir",
-        str(outdir_path),
+        "--sources", str(runtime_path),
+        "--duckdb", str(duckdb_path),
+        "--stg", str(stg_schema),
+        "--rules", str(rules_path),
+        "--outdir", str(outdir_path),
     ]
+    if args.verbose:
+        cmd.append("--verbose")
 
-    run_command(cmd)
+    print("[2/4] Processando dados e calculando qualidade...")
+    run_command(cmd, verbose=args.verbose)
 
-    try:
-        export_all_htmls_to_pdf(outdir_path, started_at)
-    except Exception as e:
-        print(f"[WARN] Falha geral na exportação de PDFs: {e}")
+    print("[3/4] Gerando arquivos PDF...")
+    pdf_count = export_all_htmls_to_pdf(
+        outdir_path,
+        started_at,
+        verbose=args.verbose,
+    )
 
-    print("\n")
-    print("[OK] Scanning Executado com sucesso! Favor checar os relatórios gerados em OUTPUT")
-    print(f"[OK] Caminho: {Path(outdir_path).resolve()}")
-    print("\n")
+    elapsed = time.time() - started_at
+    print("[4/4] Processo concluído com sucesso!")
+    print()
+    print(line)
+    print("PROCESSO CONCLUÍDO COM SUCESSO".center(72))
+    print(line)
+    print(f"Tempo de execução : {elapsed:.1f} segundos")
+    print(f"PDFs gerados      : {pdf_count}")
+    print(f"Relatórios        : {resolve_path(outdir_path)}")
+    print(line)
 
 
 if __name__ == "__main__":

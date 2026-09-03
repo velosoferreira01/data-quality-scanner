@@ -1,0 +1,10 @@
+files:
+  inbox: C:\Users\dveloso\data-quality-scanner\data\jobs\20260728_113053_a74df4\input
+  include_ext:
+  - csv
+  - xlsx
+  - xls
+  - parquet
+  csv_sep: ','
+  csv_encoding: utf-8
+databases: []

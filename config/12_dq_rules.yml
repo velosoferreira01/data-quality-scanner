@@ -1,29 +1,117 @@
-# 12_dq_rules.yml
-# object_name: é o mesmo que o scanner salva (tabela/arquivo)
-# Para Postgres: object_name = nome da tabela (ex: clientes)
-# Para DuckDB: object_name = o que você passou em --table (ex: stg.src_material_data) OU o nome completo que você usar
-# Para arquivo: object_name = nome do arquivo (ex: vendas.csv)
-
+# CADOC 1010 - regras para a massa mista.
+# Mesclar os blocos abaixo ao config/12_dq_rules.yml.
 datasets:
-  clientes:
+  cadoc_1010_operacoes_mistas.csv:
     columns:
-      id:
+      numero_credor:
         not_null: true
         unique: true
-      email:
-        not_null: false
-        regex: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
-      idade:
+      cnpj_credor:
+        not_null: true
+        regex: "^\\d{14}$"
+      cnpj_tomador:
+        not_null: true
+        regex: "^\\d{14}$"
+      municipio_tomador:
+        not_null: true
+      uf_tomador:
+        not_null: true
+        domain: ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]
+      cnpj_garantidor:
+        not_null: true
+        regex: "^\\d{14}$"
+      municipio_garantidor:
+        not_null: true
+      uf_garantidor:
+        not_null: true
+        domain: ["AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO"]
+      data_contratacao:
+        not_null: true
+        regex: "^(0[1-9]|[12]\\d|3[01])(0[1-9]|1[0-2])\\d{4}$"
+      moeda_operacao:
+        not_null: true
+        regex: "^\\d{3}$"
+      valor_operacao:
+        not_null: true
+        range:
+          min: 0.01
+          max: 9999999999999999.99
+      autorizacao_legal:
+        not_null: true
+      modalidade:
+        not_null: true
+        regex: "^[A-Z0-9]{2}$"
+      garantia_1:
+        not_null: true
+        regex: "^\\d{2}$"
+      origem_operacao:
+        domain: ["", "P", "N", "G", "L", "C"]
+      numero_operacoes_renegociadas:
         range:
           min: 0
-          max: 120
+          max: 180
+      indicador_tesouro:
+        not_null: true
+        domain: ["S", "N"]
+      ano_limite_global:
+        range:
+          min: 0
+          max: 2100
+      ipoc:
+        unique: true
+        regex: "^[A-Za-z0-9]{67}$"
 
-  stg.src_material_data:
+  cadoc_1010_registros_mistos.csv:
     columns:
-      material_id:
+      line_number:
         not_null: true
         unique: true
-      measured_at:
+      record_type:
         not_null: true
-      plant:
-        allowed_values: ["BR01", "BR07", "BR12"]
+        domain: ["HEADER", "1", "2", "3", "4", "TRAILER"]
+      record_length:
+        not_null: true
+        range:
+          min: 200
+          max: 451
+      expected_status:
+        not_null: true
+        domain: ["VALIDO", "INVALIDO"]
+
+  cadoc_1010_tipo4_misto.csv:
+    columns:
+      numero_credor:
+        not_null: true
+      numero_bacen_anterior:
+        not_null: true
+        regex: "^\\d{10}$"
+      cnpj_credor_anterior:
+        not_null: true
+        regex: "^\\d{14}$"
+      cnpj_tomador_anterior:
+        not_null: true
+        regex: "^\\d{14}$"
+
+  adip201_retorno_misto.csv:
+    columns:
+      cnpj_credor:
+        not_null: true
+        regex: "^\\d{14}$"
+      numero_remessa:
+        not_null: true
+        regex: "^\\d{8}$"
+      numero_credor:
+        not_null: true
+      numero_operacao_bacen:
+        not_null: true
+        regex: "^\\d{10}$"
+      codigo_erro:
+        regex: "^$|^[A-Z0-9]{3}$"
+      expected_status:
+        not_null: true
+        domain: ["SUCESSO", "ERRO"]
+      record_length:
+        not_null: true
+        range:
+          min: 200
+          max: 200

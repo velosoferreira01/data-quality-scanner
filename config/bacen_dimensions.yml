@@ -1,0 +1,89 @@
+framework:
+  code: BACEN_RC_18_2025
+  name: Resolução Conjunta nº 18/2025
+  version: "1.0"
+  score_scale: 10
+  minimum_overall_score: 8.0
+  not_evaluated_policy: exclude_from_denominator
+
+classification:
+  conforme: 9.0
+  adequado: 8.0
+  atencao: 7.0
+  deficiente: 5.0
+
+# Os pesos totalizam 100%. Dimensões sem evidência são marcadas como
+# NÃO AVALIADA e não entram no denominador do score aplicável.
+dimensions:
+  acessibilidade:
+    label: Acessibilidade
+    weight: 0.05
+    evaluation_type: governance
+    minimum_score: 7.0
+  acuracia:
+    label: Acurácia
+    weight: 0.15
+    evaluation_type: hybrid
+    minimum_score: 8.0
+    components:
+      validade: 0.35
+      unicidade: 0.20
+      regras_negocio: 0.25
+      reconciliacao: 0.20
+  adaptabilidade:
+    label: Adaptabilidade
+    weight: 0.05
+    evaluation_type: governance
+    minimum_score: 7.0
+  clareza:
+    label: Clareza
+    weight: 0.05
+    evaluation_type: governance
+    minimum_score: 7.0
+  comparabilidade:
+    label: Comparabilidade
+    weight: 0.08
+    evaluation_type: hybrid
+    minimum_score: 7.0
+  completude:
+    label: Completude
+    weight: 0.12
+    evaluation_type: automated
+    minimum_score: 8.0
+  confiabilidade:
+    label: Confiabilidade
+    weight: 0.10
+    evaluation_type: hybrid
+    minimum_score: 8.0
+  consistencia:
+    label: Consistência
+    weight: 0.10
+    evaluation_type: automated
+    minimum_score: 8.0
+  integridade:
+    label: Integridade
+    weight: 0.10
+    evaluation_type: automated
+    minimum_score: 8.0
+  rastreabilidade:
+    label: Rastreabilidade
+    weight: 0.08
+    evaluation_type: hybrid
+    minimum_score: 8.0
+  relevancia:
+    label: Relevância
+    weight: 0.05
+    evaluation_type: governance
+    minimum_score: 7.0
+  tempestividade:
+    label: Tempestividade
+    weight: 0.07
+    evaluation_type: automated
+    minimum_score: 8.0
+
+governance_assessments:
+  # Valores opcionais de 0 a 10, por dataset. Exemplo:
+  # clientes.csv:
+  #   acessibilidade: {score: 8.0, evidence: "Matriz de acesso aprovada"}
+  #   clareza: {score: 9.0, evidence: "Dicionário de dados v3"}
+  default: {}

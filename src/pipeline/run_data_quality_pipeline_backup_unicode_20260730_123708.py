@@ -34,20 +34,6 @@ class CommandExecutionError(RuntimeError):
     pass
 
 
-def safe_console_print(value=""):
-    """Imprime sem falhar em consoles Windows configurados como CP1252."""
-    text = "" if value is None else str(value)
-    stream = getattr(__import__("sys"), "stdout")
-    encoding = getattr(stream, "encoding", None) or "utf-8"
-    safe_text = text.encode(encoding, errors="replace").decode(
-        encoding, errors="replace"
-    )
-    try:
-        print(safe_text)
-    except UnicodeEncodeError:
-        print(safe_text.encode("ascii", errors="replace").decode("ascii"))
-
-
 def find_project_root() -> Path:
     current = Path(__file__).resolve()
     for parent in [current.parent] + list(current.parents):
@@ -157,7 +143,7 @@ def run_command(
 
     if result.returncode != 0 and required:
         if captured_output:
-            safe_console_print(captured_output)
+            print(captured_output)
         raise CommandExecutionError(
             f"Falha ao executar comando (exit code {result.returncode}): "
             f"{' '.join(cmd_list)}"
