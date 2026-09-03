@@ -9,7 +9,7 @@ import streamlit as st
 
 
 # =========================================================
-# MJV DATA QUALITY APP - MVP STREAMLIT
+# MJV DATA QUALITY APP - MVP
 # =========================================================
 # Objetivo:
 # - Rodar o pipeline atual de Data Quality por interface web
@@ -34,7 +34,7 @@ DEFAULT_STG = "stg"
 # -----------------------------
 st.set_page_config(
     page_title="MJV Data Quality App",
-    page_icon="📊",
+    page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded",
 )

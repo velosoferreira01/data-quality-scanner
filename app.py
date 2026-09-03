@@ -363,10 +363,10 @@ def main() -> None:
     if args.verbose:
         cmd.append("--verbose")
 
-    print("[2/4] Processando dados e calculando qualidade...")
+    print("[2/4] Processando Scanning de dados e calculando qualidade...")
     run_command(cmd, verbose=args.verbose)
 
-    print("[3/4] Gerando arquivos PDF...")
+    print("[3/4] Gerando Relatórios de Qualidade...")
     pdf_count = export_all_htmls_to_pdf(
         outdir_path,
         started_at,

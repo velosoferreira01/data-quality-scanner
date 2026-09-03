@@ -3,6 +3,15 @@
 ###                     Scanning de análise  de qualidade de dados - MJV.                    ###
 ###  ######################################################################################  ###
 
+### Plataforma para análise automatizada da qualidade de dados, aplicação de regras, cálculo de aderência, geração de relatórios executivos 
+### e análise assistida por inteligência artificial local.
+
+### Este guia foi escrito para que qualquer analista consiga instalar e executar o projeto no Windows, mesmo sem experiência com Python.
+
+###  ######################################################################################  ###
+###  ######################################################################################  ###
+###  ######################################################################################  ###
+
 ## Pré-requisitos
 Antes de executar, tenha instalado:
 
@@ -23,6 +32,64 @@ Suporta múltiplas fontes:
 - Oracle usa porta 1521
 - SQLite e DuckDB usam caminho de arquivo
 
+Banco           |    Porta padrão
+PostgreSQL      |        5432
+MySQL / MariaDB |        3306
+SQL Server      |        1433
+Oracle          |        1521
+DuckDB / SQLite |        Caminho do Arquivo
+
+. Pré-requisitos
+Instale antes de começar:
+Python 3.11 ou 3.12
+Git
+PowerShell
+Ollama, quando desejar utilizar a análise por inteligência artificial
+Visual Studio Code, opcional
+
+###  ######################################################################################  ###
+### ################################ IMPORTANTE ###########################################  ###
+###  ######################################################################################  ###
+
+## Configuração das fontes de dados
+
+### Utilizando a interface web
+
+Ao utilizar a interface Streamlit, não é necessário configurar manualmente
+o caminho dos arquivos.
+
+O usuário envia os arquivos diretamente pela tela, e a plataforma:
+
+1. salva os arquivos na pasta da execução;
+2. gera automaticamente a configuração necessária;
+3. executa o scanner;
+4. disponibiliza os relatórios para consulta e download.
+
+Execute:
+
+```powershell
+python -m streamlit run web_app.py
+
+## Configuração das fontes de dados
+
+### Utilizando a interface web
+
+Ao utilizar a interface Streamlit, não é necessário configurar manualmente
+o caminho dos arquivos.
+
+O usuário envia os arquivos diretamente pela tela, e a plataforma:
+
+1. salva os arquivos na pasta da execução;
+2. gera automaticamente a configuração necessária;
+3. executa o scanner;
+4. disponibiliza os relatórios para consulta e download.
+
+Execute:
+
+```powershell
+python -m streamlit run web_app.py
+
+
 
 ###  ######################################################################################  ###
 ###  #################################### PASSO A PASSO ###################################  ###
@@ -32,6 +99,20 @@ Suporta múltiplas fontes:
 ##### Para instalar e executar no Windows:
 ## git clone https://github.com/MJV/data-quality-scanner.git
 cd data-quality-scanner
+
+Confirme que está na pasta correta:
+
+Get-ChildItem
+
+Você deverá encontrar arquivos e pastas semelhantes a:
+
+web_app.py
+app.py
+mjv_runner.py
+requirements.txt
+config
+data
+src
 
 
 ##### Instalação
